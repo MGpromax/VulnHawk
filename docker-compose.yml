@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  vulnhawk:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vulnhawk-app
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
+      - DATABASE_URL=sqlite:///vulnhawk.db
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - vulnhawk-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: vulnhawk-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - vulnhawk-network
+
+  # Optional: Celery worker for background scanning
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vulnhawk-worker
+    command: celery -A app.celery_worker worker --loglevel=info
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
+      - DATABASE_URL=sqlite:///vulnhawk.db
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+      - vulnhawk
+    restart: unless-stopped
+    networks:
+      - vulnhawk-network
+    profiles:
+      - workers
+
+  # Optional: Vulnerable demo app for testing
+  vulndemo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vulnhawk-demo
+    command: python tests/vulnerable_app.py
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+    networks:
+      - vulnhawk-network
+    profiles:
+      - demo
+
+networks:
+  vulnhawk-network:
+    driver: bridge
+
+volumes:
+  redis-data:
